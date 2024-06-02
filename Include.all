@@ -1,0 +1,114 @@
+{
+  "manifest_version": 2,
+  "name": "Advanced Ad Blocker",
+  "version": "1.0",
+  "description": "Blocks ads and dynamically scrapes known ad patterns.",
+  "permissions": [
+    "webRequest",
+    "webRequestBlocking",
+    "<all_urls>",
+    "storage",
+    "tabs"
+  ],
+  "background": {
+    "scripts": ["background.js"],
+    "persistent": true
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "browser_action": {
+    "default_popup": "popup.html"
+  }
+}
+const adDomains = new Set();
+
+chrome.webRequest.onBeforeRequest.addListener(
+  function(details) {
+    const url = new URL(details.url);
+    if (adDomains.has(url.hostname)) {
+      console.log('Blocked ad request:', details.url);
+      return { cancel: true };
+    }
+  },
+  { urls: ["<all_urls>"] },
+  ["blocking"]
+);
+
+function updateAdDomains() {
+  fetch('https://your-ad-domains-source.com/ad-domains.json')
+    .then(response => response.json())
+    .then(data => {
+      adDomains.clear();
+      data.forEach(domain => adDomains.add(domain));
+    })
+    .catch(error => console.error('Error fetching ad domains:', error));
+}
+
+// Update ad domains on startup
+chrome.runtime.onStartup.addListener(updateAdDomains);
+
+// Update ad domains periodically
+setInterval(updateAdDomains, 3600000); // Update every hour
+const adSelectors = [
+  '.ad', '.ads', '.adsbox', '.ad-banner', '.ad-container', 
+  '#ad', '#ads', '#adsbox', '#ad-banner', '#ad-container'
+];
+
+function removeAds() {
+  adSelectors.forEach(selector => {
+    const ads = document.querySelectorAll(selector);
+    ads.forEach(ad => {
+      ad.remove();
+    });
+  });
+}
+
+function observeMutations() {
+  const observer = new MutationObserver(mutations => {
+    mutations.forEach(mutation => {
+      if (mutation.addedNodes.length) {
+        removeAds();
+      }
+    });
+  });
+
+  observer.observe(document.body, { childList: true, subtree: true });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  removeAds();
+  observeMutations();
+});
+
+setInterval(() => {
+  removeAds();
+}, 3000); // Adjust the interval time as needed
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Ad Blocker</title>
+  <style>
+    body { font-family: Arial, sans-serif; }
+    button { margin: 5px; padding: 10px; }
+  </style>
+</head>
+<body>
+  <h1>Ad Blocker</h1>
+  <button id="update">Update Ad Domains</button>
+  <script>
+    document.getElementById('update').addEventListener('click', () => {
+      chrome.runtime.sendMessage({ action: 'updateAdDomains' });
+    });
+  </script>
+</body>
+</html>
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.action === 'updateAdDomains') {
+    updateAdDomains();
+  }
+});
